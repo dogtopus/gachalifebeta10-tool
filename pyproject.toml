@@ -2,6 +2,7 @@
 name = "gachalifebeta10-tool"
 version = "0.1.0"
 description = "Gacha Life PC save tool"
+license = "MIT"
 authors = ["dogtopus <dogtopus@users.noreply.github.com>"]
 
 [tool.poetry.dependencies]
