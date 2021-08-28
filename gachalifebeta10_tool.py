@@ -19,6 +19,7 @@ import argparse
 import json
 import pprint
 import os
+import pprint
 import re
 
 import miniamf.sol
@@ -101,6 +102,11 @@ def parse_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
     sp = sps.add_parser('export-charas', help='Export characters as JSON files.')
     sp.add_argument('chara_mapping', nargs='+', type=slotfile, help='Slot mapped to character file (specified as <slot>:<file>).')
 
+    sp = sps.add_parser('dump-all', help='Pretty print all values in the save file. For testing only.')
+
+    sp = sps.add_parser('update', help='Merge a JSON object into the save file, similar to Python\'s dict.update() method. For testing only and may break the save file if the JSON object contains bad values.')
+    sp.add_argument('jsonobj', help='File containing the JSON object.')
+
     return p, p.parse_args()
 
 def extract_characters(sol: miniamf.sol.SOL) -> CharaList:
@@ -108,6 +114,14 @@ def extract_characters(sol: miniamf.sol.SOL) -> CharaList:
 
 def flattern_character(slot: int, chara: CharaDict) -> FlatternedCharaDict:
     return {f'{field}{slot}': value for field, value in chara.items()}
+
+def _save_sol(sol: miniamf.sol.SOL, savefile: str, skip_backup: bool):
+    output: str = savefile
+    if not skip_backup:
+        os.rename(output, f'{output}.bak')
+
+    with open(output, 'wb') as solfile:
+        sol.save(solfile, miniamf.AMF3)
 
 def do_list_charas(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     for slot, chara in enumerate(charas):
@@ -133,17 +147,25 @@ def do_import_charas(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Argume
         flatterned_chara = flattern_character(slot, chara)
         sol.update(flatterned_chara)
 
-    output: str = args.savefile
-    if not args.no_save_backup:
-        os.rename(output, f'{output}.bak')
+    _save_sol(sol, args.savefile, args.no_save_backup)
 
-    with open(output, 'wb') as solfile:
-        sol.save(solfile, miniamf.AMF3)
+def do_dump_all(sol: miniamf.sol.SOL, _charas: CharaList, _p: argparse.ArgumentParser, _args: argparse.Namespace) -> None:
+    pprint.pprint(sol)
+
+def do_update(sol: miniamf.sol.SOL, _charas: CharaList, _p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    with open(args.jsonobj, 'r') as f:
+        obj = json.load(f)
+
+    sol.update(obj)
+
+    _save_sol(sol, args.savefile, args.no_save_backup)
 
 ACTIONS: Dict[str, DoCallback] = {
     'list-charas': do_list_charas,
     'export-charas': do_export_charas,
     'import-charas': do_import_charas,
+    'dump-all': do_dump_all,
+    'update': do_update,
 }
 
 if __name__ == '__main__':
