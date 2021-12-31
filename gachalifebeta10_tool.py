@@ -77,6 +77,8 @@ CHARA_FIELDS: Final[Tuple[str, ...]] = (
     'wings', 'wingscolor', 'wingscoloralt',
 )
 
+ERR_NO_CHARA_FIELD = 'Unable to find character fields. Is this a Gacha Life save?'
+
 CharaDict = Dict[str, Union[int, str]]
 FlatternedCharaDict = Dict[str, Union[int, str]]
 CharaList = List[CharaDict]
@@ -150,7 +152,7 @@ def do_import_charas(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Argume
     _save_sol(sol, args.savefile, args.no_save_backup)
 
 def do_dump_all(sol: miniamf.sol.SOL, _charas: CharaList, _p: argparse.ArgumentParser, _args: argparse.Namespace) -> None:
-    pprint.pprint(sol)
+    pprint.pprint(dict(sol))
 
 def do_update(sol: miniamf.sol.SOL, _charas: CharaList, _p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     with open(args.jsonobj, 'r') as f:
@@ -173,7 +175,16 @@ if __name__ == '__main__':
 
     with open(args.savefile, 'rb') as f:
         sol = miniamf.sol.load(f)
-    charas = extract_characters(sol)
+
+    charas: CharaList = []
+    try:
+        charas = extract_characters(sol)
+    except KeyError:
+        if args.action in ('dump-all', 'update'):
+            print(f'WARNING: {ERR_NO_CHARA_FIELD}')
+        else:
+            p.error(ERR_NO_CHARA_FIELD)
+            raise
 
     action: DoCallback = ACTIONS[args.action]
 
