@@ -15,9 +15,11 @@ from typing import (
     Optional,
     Literal,
     Iterator,
+    cast,
 )
 
 import argparse
+import functools
 import json
 import pprint
 import os
@@ -175,7 +177,10 @@ CHARA_FIELDS_CLUB: Final[Tuple[str, ...]] = (
     'knee2color3x','faceshadowcolorx', 'tintcolorx', 'tintspecialcolorx',
     'namecolorx','chatcolorx', 'bubblecolorx', 'bubblecolor2x',
     'bgtintcolorx','bgcolor1x', 'bgcolor2x', 'fgtintcolorx',
+    'tintspecialcolor2x',
 )
+
+COLOR_FIELDS_CLUB = set(CHARA_FIELDS_CLUB[CHARA_FIELDS_CLUB.index('skincolor1x'):])
 
 CHARSTRING_JOINER_1D = '|'
 CHARSTRING_JOINER_2D = '¦'
@@ -217,22 +222,36 @@ def parse_args() -> Tuple[argparse.ArgumentParser, argparse.Namespace]:
 
     return p, p.parse_args()
 
-def club_charstring_to_dict(charstring: str) -> CharaDict:
-    return dict(zip(CHARA_FIELDS_CLUB, charstring.split(CHARSTRING_JOINER_1D)))
+def club_charstring_to_dict(charstring: str, expand_color: bool = False) -> CharaDict:
+    charstring_splitted = charstring.split(CHARSTRING_JOINER_1D)
+    assert len(charstring_splitted) == len(CHARA_FIELDS_CLUB), 'Malformed charstring.'
+    obj: CharaDict = {}
+    for key, val in zip(CHARA_FIELDS_CLUB, charstring_splitted):
+        if expand_color and key in COLOR_FIELDS_CLUB:
+            obj[key] = f'0x{val}'
+        else:
+            obj[key] = val
+    return obj
 
 def iterate_club_extraslot(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
     slots = sol['extraslotstring'].split(CHARSTRING_JOINER_2D)
     if len(slots) != 90:
         raise ValueError('Splitted extraslotstring must contain exactly 90 items.')
     for charstring in slots:
-        obj = club_charstring_to_dict(charstring)
+        obj = club_charstring_to_dict(charstring, True)
         yield obj
 
 def club_chara_list_to_extraslotstring(chara_list: CharaList) -> str:
-    return CHARSTRING_JOINER_2D.join(map(club_chara_dict_to_charstring, chara_list))
+    return CHARSTRING_JOINER_2D.join(map(functools.partial(club_chara_dict_to_charstring, compact_color=True), chara_list))
 
-def club_chara_dict_to_charstring(obj: CharaDict) -> str:
-    charstring = CHARSTRING_JOINER_1D.join(str(obj[key]) for key in CHARA_FIELDS_CLUB)
+def club_chara_dict_to_charstring(obj: CharaDict, compact_color: bool = False) -> str:
+    def _compact_color_fields(obj: CharaDict, compact_color: bool):
+        for key in CHARA_FIELDS_CLUB:
+            if compact_color and key in COLOR_FIELDS_CLUB and isinstance(obj[key], str) and cast(str, obj[key]).startswith('0x'):
+                yield cast(str, obj[key])[2:]
+            else:
+                yield str(obj[key])
+    charstring = CHARSTRING_JOINER_1D.join(_compact_color_fields(obj, compact_color))
     return charstring
 
 def detect_save_format(sol: miniamf.sol.SOL) -> Literal['club', 'life', 'unknown']:
