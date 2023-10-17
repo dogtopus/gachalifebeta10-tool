@@ -8,6 +8,7 @@ authors = ["dogtopus <dogtopus@users.noreply.github.com>"]
 [tool.poetry.dependencies]
 python = "^3.10"
 Mini-AMF = "^0.9.1"
+setuptools = "^68.2.2"
 
 [tool.poetry.dev-dependencies]
 pylint = "^2.10.2"
