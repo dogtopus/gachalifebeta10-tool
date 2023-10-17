@@ -466,21 +466,19 @@ def iterate_club_extraslot(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
         obj = charstring_to_dict(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, charstring, True)
         yield obj
 
+def iterate_life2_slot_single(slot_data: str, size: int) -> Iterator[CharaDict]:
+    slots = slot_data.split(CHARSTRING_JOINER_2D)
+    if len(slots) != 8:
+        raise ValueError(f'Uncompacted datachar must contain exactly {len(slots)} items.')
+    for charstring in slots:
+        obj = charstring_to_dict(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, charstring, True)
+        yield obj
+
 def iterate_life2_slot(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
     for index in range(1, 3):
-        slots = sol[f'datachar{index}'].split(CHARSTRING_JOINER_2D)
-        if len(slots) != 8:
-            raise ValueError('Uncompacted datachar must contain exactly 8 items.')
-        for charstring in slots:
-            obj = charstring_to_dict(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, charstring, True)
-            yield obj
+        yield from iterate_life2_slot_single(sol[f'datachar{index}'], 8)
     for index in range(1, 31):
-        slots = sol[f'dataslot{index}'].split(CHARSTRING_JOINER_2D)
-        if len(slots) != 10:
-            raise ValueError('Uncompacted dataslot must contain exactly 10 items.')
-        for charstring in slots:
-            obj = charstring_to_dict(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, charstring, True)
-            yield obj
+        yield from iterate_life2_slot_single(sol[f'dataslot{index}'], 10)
 
 def club_chara_list_to_extraslotstring(chara_list: CharaList) -> str:
     return CHARSTRING_JOINER_2D.join(map(functools.partial(club_chara_dict_to_charstring, compact_color=True), chara_list))
@@ -489,6 +487,19 @@ def club_chara_dict_to_charstring(obj: CharaDict, compact_color: bool = False) -
     def _compact_color_fields(obj: CharaDict, compact_color: bool):
         for key in CHARA_FIELDS_CLUB:
             if compact_color and key in COLOR_FIELDS_CLUB and isinstance(obj[key], str) and cast(str, obj[key]).startswith('0x'):
+                yield cast(str, obj[key])[2:]
+            else:
+                yield str(obj[key])
+    charstring = CHARSTRING_JOINER_1D.join(_compact_color_fields(obj, compact_color))
+    return charstring
+
+def chara_list_to_extraslotstring(all_fields: Sequence[str], color_fields: set[str], chara_list: CharaList) -> str:
+    return CHARSTRING_JOINER_2D.join(map(functools.partial(club_chara_dict_to_charstring, compact_color=True), all_fields, color_fields, chara_list))
+
+def chara_dict_to_charstring(all_fields: Sequence[str], color_fields: set[str], obj: CharaDict, compact_color: bool = False) -> str:
+    def _compact_color_fields(obj: CharaDict, compact_color: bool):
+        for key in all_fields:
+            if compact_color and key in color_fields and isinstance(obj[key], str) and cast(str, obj[key]).startswith('0x'):
                 yield cast(str, obj[key])[2:]
             else:
                 yield str(obj[key])
@@ -523,7 +534,7 @@ def extract_characters(sol: miniamf.sol.SOL) -> CharaList:
 
     def _iterator_life2(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
         for obj in iterate_life2_slot(sol):
-            obj['_type'] = 'club'
+            obj['_type'] = 'life2'
             yield obj
 
     save_format = detect_save_format(sol)
@@ -617,7 +628,7 @@ def import_charas_club(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Argu
         if '_type' in chara:
             del chara['_type']
         if slot <= 10:
-            charstring = club_chara_dict_to_charstring(chara)
+            charstring = chara_dict_to_charstring(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, chara)
             sol[f'charstring{slot}'] = charstring
         else:
             extra_updated = True
@@ -627,18 +638,15 @@ def import_charas_club(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Argu
             extra_names[slot] = chara['namex']
     if extra_updated:
         sol['extranamestring'] = CHARSTRING_JOINER_1D.join(extra_names)
-        sol['extraslotstring'] = club_chara_list_to_extraslotstring(extra_slots)
+        sol['extraslotstring'] = chara_list_to_extraslotstring(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, extra_slots)
 
-# TODO
 def import_charas_life2(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, chara_mapping: list[tuple[int, str]]) -> None:
-    extra_updated = False
-    extra_slots: CharaList = list(iterate_club_extraslot(sol))
-    extra_names: list[str] = sol['extranamestring'].split(CHARSTRING_JOINER_1D)
+    updated = {}
 
     for slot, _ in chara_mapping:
         if not (1 <= slot <= 316):
             p.error(f'Invalid character slot #{slot}')
-    for slot, filename in chara_mapping:
+    for slot_global, filename in chara_mapping:
         with open(filename, 'r') as f:
             chara = json.load(f)
         if chara.get('_type', 'life') != 'life2':
@@ -649,19 +657,21 @@ def import_charas_life2(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Arg
                 chara[key] = val.replace(CHARSTRING_JOINER_1D, '_').replace(CHARSTRING_JOINER_2D, '_')
         if '_type' in chara:
             del chara['_type']
-        # TODO
-        if slot <= 10:
-            charstring = club_chara_dict_to_charstring(chara)
-            sol[f'charstring{slot}'] = charstring
+        if slot_global <= 16:
+            datachar_index, slot_index = divmod(slot_global - 1, 8)
+            key = f'datachar{datachar_index+1}'
+            expected_size = 8
         else:
-            extra_updated = True
-            # slot #11 is array index 0
-            slot -= 11
-            extra_slots[slot] = chara
-            extra_names[slot] = chara['namex']
-    if extra_updated:
-        sol['extranamestring'] = CHARSTRING_JOINER_1D.join(extra_names)
-        sol['extraslotstring'] = club_chara_list_to_extraslotstring(extra_slots)
+            dataslot_index, slot_index = divmod(slot_global - 17, 10)
+            key = f'dataslot{dataslot_index+1}'
+            expected_size = 10
+
+        if key not in updated:
+            updated[key] = list(iterate_life2_slot_single(sol[key], expected_size))
+        updated[key][slot_index] = chara
+
+    for key, slots in updated.items():
+        sol[key] = chara_list_to_extraslotstring(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, slots)
 
 def do_dump_all(sol: miniamf.sol.SOL, _charas: CharaList, _p: argparse.ArgumentParser, _args: argparse.Namespace) -> None:
     pprint.pprint(dict(sol))
