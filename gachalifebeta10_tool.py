@@ -16,12 +16,12 @@ from typing import (
 )
 
 import argparse
-import functools
 import json
 import pprint
 import os
 import pprint
 import re
+import traceback
 
 import miniamf.sol
 
@@ -468,7 +468,7 @@ def iterate_club_extraslot(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
 
 def iterate_life2_slot_single(slot_data: str, size: int) -> Iterator[CharaDict]:
     slots = slot_data.split(CHARSTRING_JOINER_2D)
-    if len(slots) != 8:
+    if len(slots) != size:
         raise ValueError(f'Uncompacted datachar must contain exactly {len(slots)} items.')
     for charstring in slots:
         obj = charstring_to_dict(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, charstring, True)
@@ -480,23 +480,18 @@ def iterate_life2_slot(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
     for index in range(1, 31):
         yield from iterate_life2_slot_single(sol[f'dataslot{index}'], 10)
 
-def club_chara_list_to_extraslotstring(chara_list: CharaList) -> str:
-    return CHARSTRING_JOINER_2D.join(map(functools.partial(club_chara_dict_to_charstring, compact_color=True), chara_list))
+def clubplus_chara_list_to_extraslotstring(all_fields: Sequence[str],
+                                           color_fields: set[str],
+                                           chara_list: CharaList) -> str:
+    return CHARSTRING_JOINER_2D.join(
+        clubplus_chara_dict_to_charstring(all_fields, color_fields, chara, compact_color=True)
+        for chara in chara_list
+    )
 
-def club_chara_dict_to_charstring(obj: CharaDict, compact_color: bool = False) -> str:
-    def _compact_color_fields(obj: CharaDict, compact_color: bool):
-        for key in CHARA_FIELDS_CLUB:
-            if compact_color and key in COLOR_FIELDS_CLUB and isinstance(obj[key], str) and cast(str, obj[key]).startswith('0x'):
-                yield cast(str, obj[key])[2:]
-            else:
-                yield str(obj[key])
-    charstring = CHARSTRING_JOINER_1D.join(_compact_color_fields(obj, compact_color))
-    return charstring
-
-def chara_list_to_extraslotstring(all_fields: Sequence[str], color_fields: set[str], chara_list: CharaList) -> str:
-    return CHARSTRING_JOINER_2D.join(map(functools.partial(club_chara_dict_to_charstring, compact_color=True), all_fields, color_fields, chara_list))
-
-def chara_dict_to_charstring(all_fields: Sequence[str], color_fields: set[str], obj: CharaDict, compact_color: bool = False) -> str:
+def clubplus_chara_dict_to_charstring(all_fields: Sequence[str],
+                                      color_fields: set[str],
+                                      obj: CharaDict,
+                                      compact_color: bool = False) -> str:
     def _compact_color_fields(obj: CharaDict, compact_color: bool):
         for key in all_fields:
             if compact_color and key in color_fields and isinstance(obj[key], str) and cast(str, obj[key]).startswith('0x'):
@@ -628,7 +623,7 @@ def import_charas_club(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Argu
         if '_type' in chara:
             del chara['_type']
         if slot <= 10:
-            charstring = chara_dict_to_charstring(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, chara)
+            charstring = clubplus_chara_dict_to_charstring(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, chara)
             sol[f'charstring{slot}'] = charstring
         else:
             extra_updated = True
@@ -638,7 +633,7 @@ def import_charas_club(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Argu
             extra_names[slot] = chara['namex']
     if extra_updated:
         sol['extranamestring'] = CHARSTRING_JOINER_1D.join(extra_names)
-        sol['extraslotstring'] = chara_list_to_extraslotstring(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, extra_slots)
+        sol['extraslotstring'] = clubplus_chara_list_to_extraslotstring(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, extra_slots)
 
 def import_charas_life2(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, chara_mapping: list[tuple[int, str]]) -> None:
     updated = {}
@@ -671,7 +666,7 @@ def import_charas_life2(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Arg
         updated[key][slot_index] = chara
 
     for key, slots in updated.items():
-        sol[key] = chara_list_to_extraslotstring(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, slots)
+        sol[key] = clubplus_chara_list_to_extraslotstring(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, slots)
 
 def do_dump_all(sol: miniamf.sol.SOL, _charas: CharaList, _p: argparse.ArgumentParser, _args: argparse.Namespace) -> None:
     pprint.pprint(dict(sol))
@@ -704,7 +699,10 @@ if __name__ == '__main__':
     except CharacterExtractorError:
         if args.action in ('dump-all', 'update'):
             print(f'WARNING: {ERR_NO_CHARA_FIELD}')
+            traceback.print_exc()
         else:
+            print(f'ERROR: {ERR_NO_CHARA_FIELD}')
+            traceback.print_exc()
             p.error(ERR_NO_CHARA_FIELD)
             raise
 
