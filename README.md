@@ -4,7 +4,7 @@ Gacha Life PC save data editing tool.
 
 ## Prerequisite
 
-Python 3.9 and poetry.
+Python 3.10 and poetry.
 
 ## Quick start
 
