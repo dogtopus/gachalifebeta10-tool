@@ -1,33 +1,14 @@
-#!/usr/bin/env python3
-
-from __future__ import annotations
-
 from typing import (
-    Callable,
-    TypedDict,
-    Final,
-    Pattern,
-    Match,
-    Optional,
+    Any,
+    Mapping,
+    MutableMapping,
     Literal,
     Iterator,
     Sequence,
     cast,
 )
 
-import argparse
-import json
-import pprint
-import os
-import pprint
-import re
-import traceback
-
-import miniamf.sol
-
-SLOT_FILE_RE: Final[Pattern] = re.compile(r'^(\d+):(.+)$')
-
-CHARA_FIELDS: Final[tuple[str, ...]] = (
+CHARA_FIELDS = (
     'accessory', 'accessorycolor', 'accessorycoloralt',
     'ahoge',
     'answer1x', 'answer2x', 'answer3x', 'answer4x', 'answer5x', 'answer6x',
@@ -78,7 +59,7 @@ CHARA_FIELDS: Final[tuple[str, ...]] = (
     'wings', 'wingscolor', 'wingscoloralt',
 )
 
-CHARA_FIELDS_CLUB: Final[tuple[str, ...]] = (
+CHARA_FIELDS_CLUB = (
     'namex', 'birthday', 'age', 'profile', 'creator', 'favcolor', 'favfood',
     'location','personality', 'occupation', 'avatar', 'club', 'title', 'icon',
     'heightx','heighty', 'pose', 'rotation', 'flip', 'shadow', 'headlayer',
@@ -412,40 +393,15 @@ CHARSTRING_JOINER_2D = '¦'
 
 ERR_NO_CHARA_FIELD = 'Unable to find character fields. Is this a Gacha Life save?'
 
+
 class CharacterExtractorError(ValueError):
     pass
+
 
 CharaDict = dict[str, int | str]
 FlatternedCharaDict = dict[str, int | str]
 CharaList = list[CharaDict]
-DoCallback = Callable[[miniamf.sol.SOL, CharaList, argparse.ArgumentParser, argparse.Namespace], None]
 
-def slotfile(v: str) -> tuple[int, str]:
-    m: Optional[Match] = SLOT_FILE_RE.match(v)
-    if m is None:
-        raise ValueError(f'Malformed string "{v}"')
-    return int(m.group(1)), m.group(2)
-
-def parse_args() -> tuple[argparse.ArgumentParser, argparse.Namespace]:
-    p = argparse.ArgumentParser()
-    p.add_argument('savefile', help='Save file.')
-    p.add_argument('-B', '--no-save-backup', action='store_true', default=False, help='Do not create backup for save file.')
-    sps = p.add_subparsers(dest='action', metavar='action', help='Action.')
-
-    sp = sps.add_parser('list-charas', help='List characters.')
-
-    sp = sps.add_parser('import-charas', help='Import characters from JSON files.')
-    sp.add_argument('chara_mapping', nargs='+', type=slotfile, help='Slot mapped to character file (specified as <slot>:<file>).')
-
-    sp = sps.add_parser('export-charas', help='Export characters as JSON files.')
-    sp.add_argument('chara_mapping', nargs='+', type=slotfile, help='Slot mapped to character file (specified as <slot>:<file>).')
-
-    sp = sps.add_parser('dump-all', help='Pretty print all values in the save file. For testing only.')
-
-    sp = sps.add_parser('update', help='Merge a JSON object into the save file, similar to Python\'s dict.update() method. For testing only and may break the save file if the JSON object contains bad values.')
-    sp.add_argument('jsonobj', help='File containing the JSON object.')
-
-    return p, p.parse_args()
 
 def charstring_to_dict(all_fields: Sequence[str], color_fields: set[str], charstring: str, expand_color: bool = False) -> CharaDict:
     charstring_splitted = charstring.split(CHARSTRING_JOINER_1D)
@@ -458,7 +414,8 @@ def charstring_to_dict(all_fields: Sequence[str], color_fields: set[str], charst
             obj[key] = val
     return obj
 
-def iterate_club_extraslot(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
+
+def iterate_club_extraslot(sol: Mapping[str, Any]) -> Iterator[CharaDict]:
     slots = sol['extraslotstring'].split(CHARSTRING_JOINER_2D)
     if len(slots) != 90:
         raise ValueError('Uncompacted extraslotstring must contain exactly 90 items.')
@@ -466,19 +423,22 @@ def iterate_club_extraslot(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
         obj = charstring_to_dict(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, charstring, True)
         yield obj
 
+
 def iterate_life2_slot_single(slot_data: str, size: int) -> Iterator[CharaDict]:
     slots = slot_data.split(CHARSTRING_JOINER_2D)
     if len(slots) != size:
-        raise ValueError(f'Uncompacted datachar must contain exactly {len(slots)} items.')
+        raise ValueError(f'Uncompacted datachar must contain exactly {size} items.')
     for charstring in slots:
         obj = charstring_to_dict(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, charstring, True)
         yield obj
 
-def iterate_life2_slot(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
+
+def iterate_life2_slot(sol: Mapping[str, Any]) -> Iterator[CharaDict]:
     for index in range(1, 3):
         yield from iterate_life2_slot_single(sol[f'datachar{index}'], 8)
     for index in range(1, 31):
         yield from iterate_life2_slot_single(sol[f'dataslot{index}'], 10)
+
 
 def clubplus_chara_list_to_extraslotstring(all_fields: Sequence[str],
                                            color_fields: set[str],
@@ -487,6 +447,7 @@ def clubplus_chara_list_to_extraslotstring(all_fields: Sequence[str],
         clubplus_chara_dict_to_charstring(all_fields, color_fields, chara, compact_color=True)
         for chara in chara_list
     )
+
 
 def clubplus_chara_dict_to_charstring(all_fields: Sequence[str],
                                       color_fields: set[str],
@@ -501,7 +462,12 @@ def clubplus_chara_dict_to_charstring(all_fields: Sequence[str],
     charstring = CHARSTRING_JOINER_1D.join(_compact_color_fields(obj, compact_color))
     return charstring
 
-def detect_save_format(sol: miniamf.sol.SOL) -> Literal['club', 'life', 'life2', 'unknown']:
+
+def flattern_character(slot: int, chara: CharaDict) -> FlatternedCharaDict:
+    return {f'{field}{slot}': value for field, value in chara.items()}
+
+
+def detect_save_format(sol: Mapping[str, Any]) -> Literal['club', 'life', 'life2', 'unknown']:
     if 'accessory1' in sol:
         return 'life'
     elif 'charstring1' in sol:
@@ -511,14 +477,15 @@ def detect_save_format(sol: miniamf.sol.SOL) -> Literal['club', 'life', 'life2',
     else:
         return 'unknown'
 
-def extract_characters(sol: miniamf.sol.SOL) -> CharaList:
-    def _iterator_life(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
+
+def extract_characters(sol: Mapping[str, Any]) -> CharaList:
+    def _iterator_life() -> Iterator[CharaDict]:
         for chara_index in range(1, 21):
             obj = {field_name: sol[f'{field_name}{chara_index}'] for field_name in CHARA_FIELDS}
             obj['_type'] = 'life'
             yield obj
 
-    def _iterator_club(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
+    def _iterator_club() -> Iterator[CharaDict]:
         for active_chara_index in range(1, 11):
             obj = charstring_to_dict(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, sol[f'charstring{active_chara_index}'])
             obj['_type'] = 'club'
@@ -527,7 +494,7 @@ def extract_characters(sol: miniamf.sol.SOL) -> CharaList:
             obj['_type'] = 'club'
             yield obj
 
-    def _iterator_life2(sol: miniamf.sol.SOL) -> Iterator[CharaDict]:
+    def _iterator_life2() -> Iterator[CharaDict]:
         for obj in iterate_life2_slot(sol):
             obj['_type'] = 'life2'
             yield obj
@@ -537,91 +504,37 @@ def extract_characters(sol: miniamf.sol.SOL) -> CharaList:
     try:
         if save_format == 'life':
             print('Detected Gacha Life save data.')
-            return list(_iterator_life(sol))
+            return list(_iterator_life())
         elif save_format == 'club':
             print('Detected Gacha Club save data.')
-            return list(_iterator_club(sol))
+            return list(_iterator_club())
         elif save_format == 'life2':
             print('Detected Gacha Life 2 save data.')
-            return list(_iterator_life2(sol))
+            return list(_iterator_life2())
         else:
             raise CharacterExtractorError('AMF file is missing required fields. Is this a Gacha save file?')
     except Exception as e:
         raise CharacterExtractorError('Error when parsing save file. Corrupted save?') from e
 
-def flattern_character(slot: int, chara: CharaDict) -> FlatternedCharaDict:
-    return {f'{field}{slot}': value for field, value in chara.items()}
 
-def _save_sol(sol: miniamf.sol.SOL, savefile: str, skip_backup: bool):
-    output: str = savefile
-    if not skip_backup:
-        os.rename(output, f'{output}.bak')
-
-    with open(output, 'wb') as solfile:
-        sol.save(solfile, miniamf.AMF3)
-
-def do_list_charas(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    for slot, chara in enumerate(charas):
-        print(f'Slot #{slot+1}: {chara["namex"]}')
-
-def do_export_charas(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    save_format = detect_save_format(sol)
-    max_slot_index = {'life': 20, 'club': 100, 'life2': 316}[save_format]
-    chara_mapping: list[tuple[int, str]] = args.chara_mapping
-
-    for slot, _ in chara_mapping:
-        if not (1 <= slot <= max_slot_index):
-            p.error(f'Invalid character slot #{slot}')
-    for slot, filename in chara_mapping:
-        with open(filename, 'w') as f:
-            json.dump(charas[slot-1], f)
-
-def do_import_charas(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    save_format = detect_save_format(sol)
-    chara_mapping: list[tuple[int, str]] = args.chara_mapping
-
-    if save_format == 'life':
-        import_charas_life(sol, charas, p, chara_mapping)
-    elif save_format == 'club':
-        import_charas_club(sol, charas, p, chara_mapping)
-    elif save_format == 'life2':
-        import_charas_life2(sol, charas, p, chara_mapping)
-
-    _save_sol(sol, args.savefile, args.no_save_backup)
-
-def import_charas_life(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, chara_mapping: list[tuple[int, str]]) -> None:
+def import_charas_life(sol: MutableMapping[str, Any], chara_mapping: list[tuple[int, CharaDict]]) -> None:
     for slot, _ in chara_mapping:
         if not (1 <= slot <= 20):
-            p.error(f'Invalid character slot #{slot}')
-    for slot, filename in chara_mapping:
-        with open(filename, 'r') as f:
-            chara = json.load(f)
-        if chara.get('_type', 'life') != 'life':
-            p.error(f"'{filename}' is not a Gacha Life chara file.")
-        if '_type' in chara:
-            del chara['_type']
+            raise ValueError(f'Invalid character slot #{slot}')
+    for slot, chara in chara_mapping:
         flatterned_chara = flattern_character(slot, chara)
         sol.update(flatterned_chara)
 
-def import_charas_club(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, chara_mapping: list[tuple[int, str]]) -> None:
+
+def import_charas_club(sol: MutableMapping[str, Any], chara_mapping: list[tuple[int, CharaDict]]) -> None:
     extra_updated = False
     extra_slots: CharaList = list(iterate_club_extraslot(sol))
     extra_names: list[str] = sol['extranamestring'].split(CHARSTRING_JOINER_1D)
 
     for slot, _ in chara_mapping:
         if not (1 <= slot <= 100):
-            p.error(f'Invalid character slot #{slot}')
-    for slot, filename in chara_mapping:
-        with open(filename, 'r') as f:
-            chara = json.load(f)
-        if chara.get('_type', 'life') != 'club':
-            p.error(f"'{filename}' is not a Gacha Club chara file.")
-        for key, val in chara.items():
-            if isinstance(val, str) and (CHARSTRING_JOINER_1D in val or CHARSTRING_JOINER_2D in val):
-                print("WARNING: Replacing array delimiter in file '{filename}', field '{key}' with '_'.")
-                chara[key] = val.replace(CHARSTRING_JOINER_1D, '_').replace(CHARSTRING_JOINER_2D, '_')
-        if '_type' in chara:
-            del chara['_type']
+            raise ValueError(f'Invalid character slot #{slot}')
+    for slot, chara in chara_mapping:
         if slot <= 10:
             charstring = clubplus_chara_dict_to_charstring(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, chara)
             sol[f'charstring{slot}'] = charstring
@@ -635,23 +548,18 @@ def import_charas_club(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Argu
         sol['extranamestring'] = CHARSTRING_JOINER_1D.join(extra_names)
         sol['extraslotstring'] = clubplus_chara_list_to_extraslotstring(CHARA_FIELDS_CLUB, COLOR_FIELDS_CLUB, extra_slots)
 
-def import_charas_life2(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.ArgumentParser, chara_mapping: list[tuple[int, str]]) -> None:
+
+def import_charas_life2(sol: MutableMapping[str, Any], chara_mapping: list[tuple[int, CharaDict]]) -> None:
     updated = {}
 
     for slot, _ in chara_mapping:
         if not (1 <= slot <= 316):
-            p.error(f'Invalid character slot #{slot}')
-    for slot_global, filename in chara_mapping:
-        with open(filename, 'r') as f:
-            chara = json.load(f)
-        if chara.get('_type', 'life') != 'life2':
-            p.error(f"'{filename}' is not a Gacha Life 2 chara file.")
+            raise ValueError(f'Invalid character slot #{slot}')
+    for slot_global, chara in chara_mapping:
         for key, val in chara.items():
             if isinstance(val, str) and (CHARSTRING_JOINER_1D in val or CHARSTRING_JOINER_2D in val):
                 print("WARNING: Replacing array delimiter in file '{filename}', field '{key}' with '_'.")
                 chara[key] = val.replace(CHARSTRING_JOINER_1D, '_').replace(CHARSTRING_JOINER_2D, '_')
-        if '_type' in chara:
-            del chara['_type']
         if slot_global <= 16:
             datachar_index, slot_index = divmod(slot_global - 1, 8)
             key = f'datachar{datachar_index+1}'
@@ -667,45 +575,3 @@ def import_charas_life2(sol: miniamf.sol.SOL, charas: CharaList, p: argparse.Arg
 
     for key, slots in updated.items():
         sol[key] = clubplus_chara_list_to_extraslotstring(CHARA_FIELDS_LIFE2, COLOR_FIELDS_LIFE2, slots)
-
-def do_dump_all(sol: miniamf.sol.SOL, _charas: CharaList, _p: argparse.ArgumentParser, _args: argparse.Namespace) -> None:
-    pprint.pprint(dict(sol))
-
-def do_update(sol: miniamf.sol.SOL, _charas: CharaList, _p: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    with open(args.jsonobj, 'r') as f:
-        obj = json.load(f)
-
-    sol.update(obj)
-
-    _save_sol(sol, args.savefile, args.no_save_backup)
-
-ACTIONS: dict[str, DoCallback] = {
-    'list-charas': do_list_charas,
-    'export-charas': do_export_charas,
-    'import-charas': do_import_charas,
-    'dump-all': do_dump_all,
-    'update': do_update,
-}
-
-if __name__ == '__main__':
-    p, args = parse_args()
-
-    with open(args.savefile, 'rb') as f:
-        sol = miniamf.sol.load(f)
-
-    charas: CharaList = []
-    try:
-        charas = extract_characters(sol)
-    except CharacterExtractorError:
-        if args.action in ('dump-all', 'update'):
-            print(f'WARNING: {ERR_NO_CHARA_FIELD}')
-            traceback.print_exc()
-        else:
-            print(f'ERROR: {ERR_NO_CHARA_FIELD}')
-            traceback.print_exc()
-            p.error(ERR_NO_CHARA_FIELD)
-            raise
-
-    action: DoCallback = ACTIONS[args.action]
-
-    action(sol, charas, p, args)
