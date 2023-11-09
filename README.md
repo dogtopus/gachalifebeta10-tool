@@ -10,6 +10,5 @@ Python 3.10 and poetry.
 
 ```sh
 poetry install
-poetry shell
-python gachalifebeta10_tool.py --help
+poetry run gachalifebeta10_tool --help
 ```
